@@ -20,7 +20,15 @@ def generate_launch_description():
         executable='apply_calib',
         name='imu_calib',
         output='screen',
-        parameters=[{"calib_file": calib_file_path}],
+        parameters=[{
+            "calib_file": calib_file_path,
+            "calibrate_gyros": True,
+            "gyro_calib_samples": 100,
+            "calibrate_accels": True,
+            "accel_calib_samples": 100,
+            "accel_reference": 9.80665,
+            "accel_calib_max_range": 0.5,
+        }],
         remappings=[
             ('raw', '/ros_robot_controller/imu_raw'),
             ('corrected', 'imu_corrected')
@@ -61,4 +69,3 @@ if __name__ == '__main__':
     ls = LaunchService()
     ls.include_launch_description(ld)
     ls.run()
-
