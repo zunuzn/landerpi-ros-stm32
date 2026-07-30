@@ -1,0 +1,66 @@
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ROS 2 build/runtime artifacts
+build/
+install/
+log/
+*.db3
+*.bag
+*.bag2
+*.mcap
+*.active
+
+# ROS generated/runtime heavy assets
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.pcm
+*.wav
+*.avi
+*.mp4
+
+# Native build outputs
+*.o
+*.obj
+*.d
+*.so
+*.dll
+*.exe
+*.a
+*.lib
+*.elf
+*.axf
+*.bin
+*.hex
+*.map
+*.lst
+*.crf
+*.lnp
+*.dep
+*.iex
+
+# STM32 IDE/compiler output directories
+Objects/
+Listings/
+Debug/
+Release/
+
+# Backup/archive files
+*.bak
+*.bak_*
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
