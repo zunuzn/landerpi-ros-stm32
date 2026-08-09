@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".wmv"}
 
 
 def iter_images(source: Path) -> list[Path]:
@@ -57,14 +58,80 @@ def resize_image(image: np.ndarray, target_width: int, target_height: int, mode:
     raise ValueError(f"Unsupported resize mode: {mode}")
 
 
+def video_output_path(source: Path, output: Path, width: int, height: int) -> Path:
+    if output.suffix.lower() in VIDEO_EXTENSIONS:
+        return output
+    return output / f"{source.stem}_{width}x{height}.mp4"
+
+
+def convert_video(
+    source: Path,
+    output: Path,
+    target_width: int,
+    target_height: int,
+    mode: str,
+    codec: str,
+    fps_override: float,
+) -> Path:
+    cap = cv2.VideoCapture(str(source))
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {source}")
+
+    source_width = int(round(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
+    source_height = int(round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    source_fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(round(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+    output_fps = fps_override if fps_override > 0 else source_fps
+    if output_fps <= 0:
+        output_fps = 30.0
+
+    if len(codec) != 4:
+        raise ValueError("--video-codec must contain exactly four characters, for example mp4v.")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(output),
+        cv2.VideoWriter_fourcc(*codec),
+        output_fps,
+        (target_width, target_height),
+    )
+    if not writer.isOpened():
+        cap.release()
+        raise RuntimeError(f"Cannot create output video: {output}")
+
+    print(
+        f"{source.name}: {source_width}x{source_height} @{source_fps:.2f}fps -> "
+        f"{target_width}x{target_height} @{output_fps:.2f}fps ({mode})"
+    )
+
+    frame_index = 0
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+
+            writer.write(resize_image(frame, target_width, target_height, mode))
+            frame_index += 1
+            if frame_index % 100 == 0:
+                total = f"/{frame_count}" if frame_count > 0 else ""
+                print(f"Processed {frame_index}{total} frames")
+    finally:
+        cap.release()
+        writer.release()
+
+    print(f"Saved video: {output} ({frame_index} frames, audio is not copied)")
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert phone photos to a camera-like fixed RGB resolution."
+        description="Convert phone photos or a video to a camera-like fixed RGB resolution."
     )
     parser.add_argument(
         "--source",
         default="photo",
-        help="Input image file or directory. Default: photo",
+        help="Input image file/directory or a video file. Default: photo",
     )
     parser.add_argument(
         "--out",
@@ -80,17 +147,42 @@ def main() -> int:
         help="crop preserves shape and fills the frame; letterbox preserves all pixels; stretch distorts objects.",
     )
     parser.add_argument("--quality", type=int, default=95, help="JPEG quality, 0-100.")
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=0.0,
+        help="Output video FPS. 0 keeps the source FPS.",
+    )
+    parser.add_argument(
+        "--video-codec",
+        default="mp4v",
+        help="FourCC used for output video. Default: mp4v.",
+    )
     args = parser.parse_args()
 
     if args.width <= 0 or args.height <= 0:
         raise ValueError("--width and --height must be positive.")
     if not 0 <= args.quality <= 100:
         raise ValueError("--quality must be between 0 and 100.")
+    if args.fps < 0:
+        raise ValueError("--fps must be zero or greater.")
 
     source = Path(args.source)
     output_root = Path(args.out)
     if not source.exists():
         raise FileNotFoundError(f"Source not found: {source}")
+
+    if source.is_file() and source.suffix.lower() in VIDEO_EXTENSIONS:
+        convert_video(
+            source=source,
+            output=video_output_path(source, output_root, args.width, args.height),
+            target_width=args.width,
+            target_height=args.height,
+            mode=args.mode,
+            codec=args.video_codec,
+            fps_override=args.fps,
+        )
+        return 0
 
     images = iter_images(source)
     if not images:
