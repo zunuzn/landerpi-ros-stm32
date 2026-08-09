@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.stable_tennis_ball_tracker import StableTennisBallTracker, draw_stable_tracks
 from src.tennis_ball_detector import TennisBallDetector, draw_detections
+from src.tiled_tennis_ball_detector import TiledTennisBallDetector
 
 
 DEFAULT_CAMERA_SOURCE = "0"
@@ -108,6 +109,23 @@ def main() -> int:
     )
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold.")
     parser.add_argument("--device", default="auto", help="Inference device: auto, cpu, cuda:0, or 0.")
+    parser.add_argument(
+        "--tiled",
+        action="store_true",
+        help="Run overlapping 640x640 tiled inference and merge duplicate boxes.",
+    )
+    parser.add_argument(
+        "--tile-overlap",
+        type=int,
+        default=160,
+        help="Overlap between neighboring tiles in pixels.",
+    )
+    parser.add_argument(
+        "--tile-iou",
+        type=float,
+        default=0.45,
+        help="IoU threshold used to merge duplicate tile detections.",
+    )
     parser.add_argument("--width", type=int, default=0, help="Optional camera width.")
     parser.add_argument("--height", type=int, default=0, help="Optional camera height.")
     parser.add_argument(
@@ -174,7 +192,18 @@ def main() -> int:
             print(r"  .\.venv\Scripts\python.exe scripts\test_yolo_video.py --source 0 --backend dshow")
         return 1
 
-    detector = TennisBallDetector(model_path=args.model, conf=args.conf, device=args.device)
+    if args.tiled:
+        detector = TiledTennisBallDetector(
+            model_path=args.model,
+            conf=args.conf,
+            overlap=args.tile_overlap,
+            iou_threshold=args.tile_iou,
+            device=args.device,
+        )
+        print("Inference mode: tiled 640x640")
+    else:
+        detector = TennisBallDetector(model_path=args.model, conf=args.conf, device=args.device)
+        print("Inference mode: full image")
     print(f"Inference device: {detector.device}")
     tracker = None
     if not args.no_stability:
