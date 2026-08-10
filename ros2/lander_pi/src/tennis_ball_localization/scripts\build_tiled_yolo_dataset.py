@@ -150,6 +150,7 @@ def process_image(
     overlap: int,
     min_visibility: float,
     include_empty_tiles: bool,
+    empty_tile_ratio: float,
 ) -> tuple[int, int]:
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if image is None:
@@ -160,8 +161,8 @@ def process_image(
     labels = read_labels(labels_dir / f"{image_path.stem}.txt")
     full_boxes = [yolo_to_xyxy(label, image_width, image_height) for label in labels]
 
-    written_images = 0
-    written_boxes = 0
+    positive_tiles: list[tuple[int, int, str, list[YoloBox]]] = []
+    empty_tiles: list[tuple[int, int, str]] = []
     for tile_index, (tile_x, tile_y) in enumerate(tile_origins(image_width, image_height, tile_size, overlap)):
         tile_boxes: list[YoloBox] = []
         for label, full_box in zip(labels, full_boxes):
@@ -175,11 +176,25 @@ def process_image(
             if clipped is not None:
                 tile_boxes.append(xyxy_to_yolo(label.class_id, clipped, tile_size))
 
-        if not tile_boxes and not include_empty_tiles:
-            continue
-
-        tile = image[tile_y : tile_y + tile_size, tile_x : tile_x + tile_size]
         tile_stem = f"{image_path.stem}_tile_{tile_index:02d}_x{tile_x}_y{tile_y}"
+        if tile_boxes:
+            positive_tiles.append((tile_x, tile_y, tile_stem, tile_boxes))
+        else:
+            empty_tiles.append((tile_x, tile_y, tile_stem))
+
+    if include_empty_tiles and empty_tile_ratio > 0.0:
+        max_empty_tiles = int(len(positive_tiles) * empty_tile_ratio)
+        if len(empty_tiles) > max_empty_tiles:
+            empty_tiles = random.sample(empty_tiles, max_empty_tiles)
+    else:
+        empty_tiles = []
+
+    written_images = 0
+    written_boxes = 0
+
+    def save_tile(tile_x: int, tile_y: int, tile_stem: str, tile_boxes: list[YoloBox]) -> None:
+        nonlocal written_images, written_boxes
+        tile = image[tile_y : tile_y + tile_size, tile_x : tile_x + tile_size]
         out_image_path = output_dir / "images" / split / f"{tile_stem}.jpg"
         out_label_path = output_dir / "labels" / split / f"{tile_stem}.txt"
         out_image_path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,6 +205,12 @@ def process_image(
         write_labels(out_label_path, tile_boxes)
         written_images += 1
         written_boxes += len(tile_boxes)
+
+    for tile_x, tile_y, tile_stem, tile_boxes in positive_tiles:
+        save_tile(tile_x, tile_y, tile_stem, tile_boxes)
+
+    for tile_x, tile_y, tile_stem in empty_tiles:
+        save_tile(tile_x, tile_y, tile_stem, [])
 
     return written_images, written_boxes
 
@@ -225,7 +246,13 @@ def main() -> int:
     parser.add_argument(
         "--include-empty-tiles",
         action="store_true",
-        help="Keep tiles without objects. Use this for negative samples.",
+        help="Keep some tiles without objects as negative samples.",
+    )
+    parser.add_argument(
+        "--empty-tile-ratio",
+        type=float,
+        default=2.0,
+        help="Maximum empty tiles per positive tile. Default: 2.0 for roughly 1:2 positive-to-empty.",
     )
     parser.add_argument("--class-name", default="tennis_ball", help="Class name written to dataset YAML.")
     args = parser.parse_args()
@@ -238,6 +265,8 @@ def main() -> int:
         raise ValueError("--min-visibility must be between 0 and 1.")
     if not 0.0 <= args.val_ratio <= 1.0:
         raise ValueError("--val-ratio must be between 0 and 1.")
+    if args.empty_tile_ratio < 0.0:
+        raise ValueError("--empty-tile-ratio must be zero or greater.")
 
     random.seed(args.seed)
     images_dir = Path(args.images)
@@ -266,6 +295,7 @@ def main() -> int:
             overlap=args.overlap,
             min_visibility=args.min_visibility,
             include_empty_tiles=args.include_empty_tiles,
+            empty_tile_ratio=args.empty_tile_ratio,
         )
         total_tiles += written_images
         total_boxes += written_boxes
